@@ -18,7 +18,7 @@ namespace AeroTrajectory
         public override string Author => "Astro The Rabbit";
         public override string MinimumGameVersionNecessary => "1.5.10.2";
         public override string ModVersion => "v1.0";
-        public override string Description => "Draws simulated atmospheric trajectories in map view.";
+        public override string Description => "Adds simulated aerodynamic trajectories to the map view.";
 
         // public override Dictionary<string, string> Dependencies { get; } = new Dictionary<string, string> { { "UITools", "1.1.1" } };
         public Dictionary<string, FilePath> UpdatableFiles => new Dictionary<string, FilePath>() { { "https://github.com/AstroTheRabbit/Aero-Trajectory-SFS/releases/latest/download/AeroTrajectory.dll", new FolderPath(ModFolder).ExtendToFile("AeroTrajectory.dll") } };
