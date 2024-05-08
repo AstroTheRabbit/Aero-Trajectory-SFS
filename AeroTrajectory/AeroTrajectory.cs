@@ -9,19 +9,9 @@ using SFS.World.Maps;
 
 namespace AeroTrajectory
 {
-    public class TrajectoryManager : MonoBehaviour
+    public static class TrajectoryManager
     {
-        public static TrajectoryManager main;
-
-        public static void LoadAeroTrajectory()
-        {
-            main = new GameObject("AeroTrajectory").AddComponent<TrajectoryManager>();
-        }
-
-        public static void UnloadAeroTrajectory()
-        {
-            Destroy(main);
-        }
+        static SettingsData Settings => AeroTrajectory.Settings.settings;
 
         static bool CanRunSimulation(out Rocket player, out Location startLocation)
         {
@@ -71,26 +61,13 @@ namespace AeroTrajectory
             return false;
         }
 
-        static void RunAndDrawSimulation(Rocket rocket, Location startLocation, float angle)
-        {
-            TrajectorySimulation simulation = new TrajectorySimulation(rocket, startLocation, angle);
-            List<Vector3> points = new List<Vector3>();
-            while (simulation.Step() is Vector2 point)
-            {
-                points.Add(point / 1000f);
-                if (points.Count >= Main.settings.simulationIterations)
-                    break;
-            }
-            (Main.settings.trajectoryDashedLine ? Map.dashedLine : Map.solidLine).DrawLine(points.ToArray(), simulation.planet, Main.settings.trajectoryColor, Main.settings.trajectoryColor);
-        }
-
-        public void DrawTrajectory()
+        public static void DrawTrajectory()
         {
             try
             {
                 if (CanRunSimulation(out Rocket player, out Location startLocation))
                 {
-                    switch (Main.settings.simulationType)
+                    switch (Settings.simulationType)
                     {
                         case SimulationType.Prograde:
                             RunAndDrawSimulation(player, startLocation, (Mathf.Deg2Rad * player.GetRotation()) - (Mathf.PI / 2));
@@ -106,7 +83,7 @@ namespace AeroTrajectory
                             for (int i = 0; i < 100; i++)
                             {
                                 float angle = Mathf.PI * i / 50f;
-                                float drag = TrajectorySimulation.GetDragCoefficent(player, angle);
+                                float drag = TrajectorySimulation.GetDragCoefficent(TrajectorySimulation.GetExposedSurfaces(player, angle));
                                 if (drag < dragMin)
                                 {
                                     dragMin = drag;
@@ -126,8 +103,21 @@ namespace AeroTrajectory
             }
             catch (Exception e)
             {
-                Debug.Log($"AeroTrajectory: {e}");
+                Debug.Log($"Aero Trajectory: {e}");
             }
+        }
+
+        static void RunAndDrawSimulation(Rocket rocket, Location startLocation, float angle)
+        {
+            TrajectorySimulation simulation = new TrajectorySimulation(rocket, startLocation, angle);
+            List<Vector3> points = new List<Vector3>();
+            while (simulation.Step() is Vector2 point)
+            {
+                points.Add(point / 1000f);
+                if (points.Count >= Settings.simulationIterations)
+                    break;
+            }
+            (Settings.trajectoryDashedLine ? Map.dashedLine : Map.solidLine).DrawLine(points.ToArray(), simulation.planet, Settings.trajectoryColor, Settings.trajectoryColor);
         }
     }
 
@@ -135,21 +125,41 @@ namespace AeroTrajectory
     {
         public Planet planet;
         readonly float dragCoefficient;
+        readonly float? glidingHeatshields_dragCoefficient;
         Vector2 currentPos;
         Vector2 currentVel;
         Vector2 currentAcc;
         bool enteredAtmosphere;
 
-        // TODO: Get exposed surfaces from angles other than retrograde.
         public TrajectorySimulation(Rocket player, Location startLocation, float angle)
         {
+            List<Surface> exposedSurfaces = GetExposedSurfaces(player, angle);
             Location location = startLocation;
+
             planet = location.planet;
-            dragCoefficient = GetDragCoefficent(player, angle) / player.mass.GetMass();
+            dragCoefficient = GetDragCoefficent(exposedSurfaces) / player.mass.GetMass();
             currentPos = location.position.ToVector2;
             currentVel = location.velocity.ToVector2;
             currentAcc = GetAcceleration(currentPos, currentVel);
             enteredAtmosphere = false;
+
+            glidingHeatshields_dragCoefficient = null;
+            if (Main.glidingHeatshields != null)
+            {
+                try
+                {
+                    // ? https://github.com/Kaskouy/SFS-Gliding-heat-shields/blob/main/Patch_AeroModule.cs
+                    (float lift, _) = ((float, Vector2)) Main.glidingHeatshields
+                        .GetType("TestModSFS.Patch_AeroModule")
+                        .GetMethod("CalculateLiftForce", BindingFlags.NonPublic | BindingFlags.Static)
+                        .Invoke(null, new[] { exposedSurfaces });
+                    glidingHeatshields_dragCoefficient = 1.5f * lift / player.mass.GetMass();
+                }
+                catch (Exception e)
+                {
+                    Debug.Log(new Exception("Aero Trajectory: Error whilst trying to get Gliding Heatshields coefficient", e));
+                }
+            }
         }
 
         public Vector2? Step()
@@ -166,16 +176,16 @@ namespace AeroTrajectory
             if (enteredAtmosphere && !IsInsideAtmosphere(planet, currentRadius))
             {
                 // * Trajectory escaped atmosphere.
-                if (Main.settings.showEscapeOrbit)
+                if (Settings.settings.showEscapeOrbit)
                 {
                     Location location = new Location(WorldTime.main.worldTime, planet, (Double2) currentPos, (Double2) currentVel);
-                    TrajectoryDrawer.DrawDashed(new Orbit(location, false, true), true, false, true, Main.settings.trajectoryColor);
+                    TrajectoryDrawer.DrawDashed(new Orbit(location, false, true), true, false, true, Settings.settings.trajectoryColor);
                 }
                 return null;
             }
 
             // ? Verlet integration - https://en.wikipedia.org/wiki/Verlet_integration#Algorithmic_representation
-            float dt = Main.settings.simulationStepSize;
+            float dt = Settings.settings.simulationStepSize;
             Vector2 newPos = currentPos + (currentVel * dt) + (0.5f * currentAcc * dt * dt);
             Vector2 newAcc = GetAcceleration(currentPos, currentVel);
             Vector2 newVel = currentVel + (0.5f * dt * (currentAcc + newAcc));
@@ -195,9 +205,8 @@ namespace AeroTrajectory
             return false;
         }
 
-        public static float GetDragCoefficent(Rocket player, float angle)
+        public static float GetDragCoefficent(List<Surface> exposedSurfaces)
         {
-            List<Surface> exposedSurfaces = AeroModule.GetExposedSurfaces(Aero_Rocket.GetDragSurfaces(player.partHolder, Matrix2x2.Angle(-angle)));
             return (
                 ((float, Vector2)) typeof(AeroModule)
                     .GetMethod("CalculateDragForce", BindingFlags.NonPublic | BindingFlags.Static)
@@ -206,19 +215,36 @@ namespace AeroTrajectory
                 .Item1;
         }
 
-        Vector2 GetAcceleration(Vector2 pos, Vector2 vel)
+        public static List<Surface> GetExposedSurfaces(Rocket player, float angle)
         {
-            return GetDrag(pos, vel) + GetGravity(pos);
+            return AeroModule.GetExposedSurfaces(Aero_Rocket.GetDragSurfaces(player.partHolder, Matrix2x2.Angle(-angle)));
         }
 
-        Vector2 GetDrag(Vector2 pos, Vector2 vel)
+        Vector2 GetAcceleration(Vector2 pos, Vector2 vel)
+        {
+            return GetDragAcceleration(pos, vel) + GetGravitationalAcceleration(pos) + GetGlidingHeatshieldsAcceleration(pos, vel);
+        }
+
+        Vector2 GetDragAcceleration(Vector2 pos, Vector2 vel)
         {
             float atmoDensity = (float) planet.GetAtmosphericDensity(pos.magnitude - planet.Radius);
             float force = dragCoefficient * 1.5f * vel.sqrMagnitude;
             return force * atmoDensity * -vel.normalized;
         }
 
-        Vector2 GetGravity(Vector2 pos)
+        Vector2 GetGlidingHeatshieldsAcceleration(Vector2 pos, Vector2 vel)
+        {
+            if (glidingHeatshields_dragCoefficient is float coefficient)
+            {
+                return coefficient * (float) planet.GetAtmosphericDensity(pos.magnitude - planet.Radius) * (float) vel.sqrMagnitude * (-vel.normalized).Rotate_90();
+            }
+            else
+            {
+                return Vector2.zero;
+            }
+        }
+
+        Vector2 GetGravitationalAcceleration(Vector2 pos)
         {
             return (Vector2) planet.GetGravity((Double2) pos);
         }
