@@ -137,14 +137,14 @@ namespace AeroTrajectory
             Location location = startLocation;
 
             planet = location.planet;
-            dragCoefficient = GetDragCoefficent(exposedSurfaces) / player.mass.GetMass();
+            dragCoefficient = 1.5f * GetDragCoefficent(exposedSurfaces) / player.mass.GetMass();
             currentPos = location.position.ToVector2;
             currentVel = location.velocity.ToVector2;
             currentAcc = GetAcceleration(currentPos, currentVel);
             enteredAtmosphere = false;
 
             glidingHeatshields_dragCoefficient = null;
-            if (Main.glidingHeatshields != null)
+            if (Main.glidingHeatshields != null && Settings.settings.glidingHeatshieldsForces)
             {
                 try
                 {
@@ -228,8 +228,7 @@ namespace AeroTrajectory
         Vector2 GetDragAcceleration(Vector2 pos, Vector2 vel)
         {
             float atmoDensity = (float) planet.GetAtmosphericDensity(pos.magnitude - planet.Radius);
-            float force = dragCoefficient * 1.5f * vel.sqrMagnitude;
-            return force * atmoDensity * -vel.normalized;
+            return dragCoefficient * vel.sqrMagnitude * atmoDensity * -vel.normalized;
         }
 
         Vector2 GetGlidingHeatshieldsAcceleration(Vector2 pos, Vector2 vel)
