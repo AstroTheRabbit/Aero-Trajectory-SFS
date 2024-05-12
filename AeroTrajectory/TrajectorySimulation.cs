@@ -6,6 +6,7 @@ using SFS.World;
 using SFS.WorldBase;
 using SFS.World.Drag;
 using SFS.World.Maps;
+using System.Linq;
 
 namespace AeroTrajectory
 {
@@ -14,9 +15,11 @@ namespace AeroTrajectory
         public Planet planet;
         readonly float dragCoefficient;
         readonly float? glidingHeatshields_dragCoefficient;
+        readonly float heatingConst_num4;
         Vector2 currentPos;
         Vector2 currentVel;
         Vector2 currentAcc;
+        float currentTemp;
         bool enteredAtmosphere;
 
         public TrajectorySimulation(Rocket player, Location startLocation, float angle)
@@ -29,6 +32,19 @@ namespace AeroTrajectory
             currentPos = location.position.ToVector2;
             currentVel = location.velocity.ToVector2;
             currentAcc = GetAcceleration(currentPos, currentVel);
+
+            try
+            {
+                HeatModuleBase heatModule = player.aero.heatManager.GetMostHeatedModules(1).First();
+                currentTemp = float.IsNegativeInfinity(heatModule.Temperature) ? 0f : heatModule.Temperature;
+                heatingConst_num4 = 1f + Mathf.Log10(heatModule.ExposedSurface + 1f);
+            }
+            catch (InvalidOperationException)
+            {
+                currentTemp = 0f;
+                heatingConst_num4 = 1f;
+            }
+
             enteredAtmosphere = false;
 
             glidingHeatshields_dragCoefficient = null;
@@ -50,8 +66,9 @@ namespace AeroTrajectory
             }
         }
 
-        public Vector2? Step()
+        public Vector2? Step(out Color trajectoryColor)
         {
+            trajectoryColor = Settings.settings.trajectoryColor;
             float currentRadius = currentPos.magnitude;
             if (currentRadius <= (float) planet.Radius)
             {
@@ -80,6 +97,15 @@ namespace AeroTrajectory
             currentPos = newPos;
             currentVel = newVel;
             currentAcc = newAcc;
+
+            UpdateHeating(dt);
+            float maxTemp = Settings.settings.realMaxTemperature ? 1.03f * currentTemp : currentTemp;
+            if (maxTemp >= AeroModule.GetHeatTolerance(HeatTolerance.High))
+                trajectoryColor = Settings.settings.heatingColorHigh;
+            else if (maxTemp >= AeroModule.GetHeatTolerance(HeatTolerance.Mid))
+                trajectoryColor = Settings.settings.heatingColorMid;
+            else if (maxTemp >= AeroModule.GetHeatTolerance(HeatTolerance.Low))
+                trajectoryColor = Settings.settings.heatingColorLow;
             
             return currentPos;
         }
@@ -134,6 +160,30 @@ namespace AeroTrajectory
         Vector2 GetGravitationalAcceleration(Vector2 pos)
         {
             return (Vector2) planet.GetGravity((Double2) pos);
+        }
+
+        // ? Based on HeatManager.ApplyHeat() & HeatManager.DissipateHeat().
+        void UpdateHeating(float dt)
+        {
+            Location location = new Location(planet, (Double2) currentPos, (Double2) currentVel);
+            AeroModule.GetTemperatureAndShockwave(location, out _, out _, out float tempBase);
+
+            float num3 = tempBase - currentTemp;
+            if (num3 > 0f)
+            {
+                float num1 = 0.02f * dt;
+                float num5 = ((num3 < 1000f) ? num3 : (num3 * num3 / 1000f));
+                currentTemp += heatingConst_num4 * num5 * num1;
+            }
+            else if (currentTemp > 0f)
+            {
+                float num1 = 0.01f * WorldTime.FixedDeltaTime;
+	            float num2 = 10f * WorldTime.FixedDeltaTime;
+                currentTemp -= num2 + currentTemp * num1;
+
+                if (currentTemp < 0f)
+                    currentTemp = 0f;
+            }
         }
     }
 }

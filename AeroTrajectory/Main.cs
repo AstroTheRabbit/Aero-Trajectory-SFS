@@ -19,7 +19,7 @@ namespace AeroTrajectory
         public override string DisplayName => "Aero Trajectory";
         public override string Author => "Astro The Rabbit";
         public override string MinimumGameVersionNecessary => "1.5.10.2";
-        public override string ModVersion => "v1.3";
+        public override string ModVersion => "v1.4";
         public override string Description => "Adds simulated aerodynamic trajectories to the map view.";
 
        public Dictionary<string, FilePath> UpdatableFiles => new Dictionary<string, FilePath>() { { "https://github.com/AstroTheRabbit/Aero-Trajectory-SFS/releases/latest/download/AeroTrajectory.dll", new FolderPath(ModFolder).ExtendToFile("AeroTrajectory.dll") } };
@@ -40,7 +40,6 @@ namespace AeroTrajectory
             }
             catch
             {
-                
                 Debug.Log("Aero Trajectory: Gliding Heatshields not installed/active.");
             }
         }

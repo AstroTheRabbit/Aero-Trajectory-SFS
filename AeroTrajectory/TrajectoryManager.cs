@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using UnityEngine;
 using SFS.World;
 using SFS.World.Maps;
+using System.Linq;
 
 namespace AeroTrajectory
 {
@@ -116,14 +117,32 @@ namespace AeroTrajectory
         static void RunAndDrawSimulation(Rocket rocket, Location startLocation, float angle)
         {
             TrajectorySimulation simulation = new TrajectorySimulation(rocket, startLocation, angle);
+            LineDrawer drawer = Settings.trajectoryDashedLine ? Map.dashedLine : Map.solidLine;
             List<Vector3> points = new List<Vector3>();
-            while (simulation.Step() is Vector2 point)
+            Color currentColor = Settings.trajectoryColor;
+
+            while (simulation.Step(out Color color) is Vector2 point)
             {
+                if (color != currentColor)
+                {
+                    drawer.DrawLine(points.ToArray(), simulation.planet, currentColor, currentColor);
+                    List<Vector3> newPoints = new List<Vector3>();
+                    try
+                    {
+                        Vector3 prevPoint = points.Last();
+                        newPoints.Add(prevPoint);
+                    }
+                    catch (InvalidOperationException) { }
+
+                    currentColor = color;
+                    points = newPoints;
+                }
+
                 points.Add(point / 1000f);
                 if (points.Count >= Settings.simulationIterations)
                     break;
             }
-            (Settings.trajectoryDashedLine ? Map.dashedLine : Map.solidLine).DrawLine(points.ToArray(), simulation.planet, Settings.trajectoryColor, Settings.trajectoryColor);
+            drawer.DrawLine(points.ToArray(), simulation.planet, currentColor, currentColor);
         }
     }
 }
